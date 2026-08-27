@@ -32,6 +32,7 @@
 #include "hw/boards.h"
 
 #define DRAM_BASE 0x00400000
+#define DTB_ADDR (DRAM_BASE + 8 * MiB - dtb_size)
 
 static void setup_vector(unsigned int base)
 {
@@ -70,20 +71,21 @@ static void edosk2674_init(MachineState *machine)
         rom_add_file_fixed(machine->firmware, 0, 0);
     }
 
-    /* Initalize CPU */
-    object_initialize_child(OBJECT(machine), "mcu", &s->cpu, TYPE_H8S2674);
-    object_property_set_link(OBJECT(&s->cpu), "main-bus", OBJECT(sysmem),
+    /* Initialize MCU */
+    object_initialize_child(OBJECT(machine), "mcu", s, TYPE_H8S2674);
+    object_property_set_link(OBJECT(s), "memory", OBJECT(sysmem),
                              &error_abort);
-    object_property_set_uint(OBJECT(s), "clock-freq", 33333333, &error_abort);
+    object_property_set_uint(OBJECT(s), "clock-freq", 33333333,
+                             &error_abort);
     object_property_set_uint(OBJECT(s), "console", 2, &error_abort);
-    qdev_realize(DEVICE(&s->cpu), NULL, &error_abort);
+    sysbus_realize(SYS_BUS_DEVICE(s), &error_abort);
 
     smc91c96_init(&nd_table[0], 0xf80000, s->irq[16]);
 
     /* Load kernel and dtb */
     if (kernel_filename) {
         h8300_load_image(H8300_CPU(first_cpu), kernel_filename,
-                      DRAM_BASE + 4 * MiB, 4 * MiB);
+                      DRAM_BASE, 4 * MiB);
         setup_vector(0xffc000 - 0x200);
         if (dtb_filename) {
             dtb = load_device_tree(dtb_filename, &dtb_size);
@@ -97,10 +99,8 @@ static void edosk2674_init(MachineState *machine)
                 fprintf(stderr, "couldn't set /chosen/bootargs\n");
                 exit(1);
             }
-            rom_add_blob_fixed("dtb", dtb, dtb_size,
-                               DRAM_BASE + 4 * MiB - dtb_size);
-            /* Set dtb address to R0 */
-            H8300_CPU(first_cpu)->env.regs[0] = DRAM_BASE + 4 * MiB - dtb_size;
+	    rom_add_blob_fixed("dtb", dtb, dtb_size, DTB_ADDR);
+	    H8300_CPU(first_cpu)->env.regs[0] = DTB_ADDR;
         }
     }
 }
