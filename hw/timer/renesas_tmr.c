@@ -137,21 +137,58 @@ static void set_next_event(RTMRState *tmr)
     int64_t next_event = INT64_MAX;
 
     /* Find the most recent event.　*/
-    for (ch = 0; ch < 2; ch++) {
-        int cmp[] = { 0x100,
-                      tmr->tcora[ch],
-                      tmr->tcorb[ch],
+    if (is_cascading(tmr, 0)) {
+        /*
+         * Channel 0 and 1 form a single 16 bit counter clocked by the
+         * source of channel 1.  The compare registers have to be
+         * compared as one 16 bit value as well -- comparing the halves
+         * separately yields a bogus, possibly negative distance.
+         */
+        int cnt = regcat(tmr->tcnt);
+        int cmp[] = { 0x10000,
+                      regcat(tmr->tcora),
+                      regcat(tmr->tcorb),
         };
-        int64_t clk = divrate(tmr, ch) * NANOSECONDS_PER_SECOND / tmr->input_freq;
-        count = 256;
+        int64_t clk = divrate(tmr, 1) * NANOSECONDS_PER_SECOND / tmr->input_freq;
+        count = 0x10000 - cnt;
         for (i = 0; i < 3; i++) {
+            int d;
             if (cmp[i] == 0) {
                 continue;
             }
-            count = MIN(count, cmp[i] - tmr->tcnt[ch]);
+            d = cmp[i] - cnt;
+            if (d <= 0) {
+                /* already passed: the counter reaches it after wrapping */
+                d += 0x10000;
+            }
+            count = MIN(count, d);
         }
         if (clk > 0) {
-            next_event = MIN(next_event, count * clk);
+            next_event = count * clk;
+        }
+    } else {
+        for (ch = 0; ch < 2; ch++) {
+            int cmp[] = { 0x100,
+                          tmr->tcora[ch],
+                          tmr->tcorb[ch],
+            };
+            int64_t clk = divrate(tmr, ch) * NANOSECONDS_PER_SECOND
+                          / tmr->input_freq;
+            count = 0x100 - tmr->tcnt[ch];
+            for (i = 0; i < 3; i++) {
+                int d;
+                if (cmp[i] == 0) {
+                    continue;
+                }
+                d = cmp[i] - tmr->tcnt[ch];
+                if (d <= 0) {
+                    d += 0x100;
+                }
+                count = MIN(count, d);
+            }
+            if (clk > 0) {
+                next_event = MIN(next_event, count * clk);
+            }
         }
     }
     if (next_event == INT64_MAX) {
