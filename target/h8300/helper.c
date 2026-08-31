@@ -120,5 +120,16 @@ hwaddr h8300_cpu_get_phys_page_debug(CPUState *cs, vaddr addr)
 void h8300_cpu_setim(int im)
 {
     intmode = im;
+    /*
+     * The interrupt control mode is part of the TB flags, because RTE has
+     * to know whether EXR was pushed.  Keep env->im in sync with it --
+     * otherwise RTE never restores EXR, the interrupt mask stays at the
+     * level of the first accepted interrupt, and every further interrupt
+     * of that priority is refused for good.
+     */
+    if (first_cpu != NULL) {
+        H8300CPU *cpu = H8300_CPU(first_cpu);
+        cpu->env.im = im;
+    }
 }
 

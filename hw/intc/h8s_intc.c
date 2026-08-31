@@ -98,10 +98,16 @@ static inline int trigger_mode(H8SINTCState *intc, int no)
     switch (no) {
     case 16 ... 32:
         return extract32(intc->iscr, (no - 16) * 2, 2);
-    case 72 ... 79:
-        return 2;
     default:
-        return 0;
+        /*
+         * Everything but the external IRQ pins is an on-chip peripheral.
+         * Those request by setting a status flag, and the devices model
+         * that with qemu_irq_pulse(), so the request has to be latched on
+         * the rising edge -- treating them as level driven loses every
+         * pulse.  This used to be hardcoded for the timer (72...79) only,
+         * which is why the timer worked and the SCI did not.
+         */
+        return 2;
     }
 }
 
@@ -166,10 +172,16 @@ static void h8sintc_ack_irq(void *opaque, int no, int level)
     if (n_IRQ < 0) {
         return;
     }
-    qatomic_set(&intc->req_irq, -1);
     if (level == 0) {
+        /*
+         * The CPU only says it cannot take the interrupt right now (it is
+         * masked, or of too low a priority).  That is not an acknowledge --
+         * keep the request in flight, or it is lost for good once the
+         * device has stopped re-asserting it.
+         */
         return;
     }
+    qatomic_set(&intc->req_irq, -1);
     set_pending(intc, n_IRQ, 0);
     ext = ext_no(n_IRQ);
     if (ext >= 0 && (extract32(intc->iscr, ext * 2, 2) > 0)) {

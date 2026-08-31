@@ -172,6 +172,25 @@ static void sci_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
         if (!FIELD_EX8(sci->scr, SCR, RIE)) {
             qemu_set_irq(sci->irq[ERI], 0);
         }
+        if (sci->rev == 0) {
+            /*
+             * In hardware TXI/TEI are asserted while the condition holds,
+             * so enabling the interrupt when TDRE/TEND is already set has
+             * to raise it.  This model only signals them at the moment the
+             * flag changes, and the driver enables TIE after the transmit
+             * register has gone empty -- without this the first transmit
+             * interrupt never arrives and the port stalls.
+             */
+            if (FIELD_EX8(sci->scr, SCR, TE) &&
+                FIELD_EX8(sci->scr, SCR, TIE) &&
+                FIELD_EX8(sci->ssr, SSR, TDRE)) {
+                qemu_irq_pulse(sci->irq[TXI]);
+            }
+            if (FIELD_EX8(sci->scr, SCR, TEIE) &&
+                FIELD_EX8(sci->ssr, SSR, TEND)) {
+                qemu_set_irq(sci->irq[TEI], 1);
+            }
+        }
         break;
     case A_TDR:
         sci->tdr = val;

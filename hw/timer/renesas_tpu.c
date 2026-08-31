@@ -112,7 +112,13 @@ static void set_next_event(RTPUState *s)
             continue;
         }
         t = div_rate[ch][FIELD_EX8(s->ch[ch].tcr, TCR, TPSC)];
-        if (t == 0) {
+        if (t <= 0) {
+            /*
+             * 0 is "no clock", -1 is "counts the overflows of the next
+             * channel".  Neither is driven by time, and letting -1 through
+             * makes the event distance negative, which arms the timer in
+             * the past and spins.  read_tcnt() already tests it this way.
+             */
             continue;
         }
         gr = clr_gr(s, ch);
@@ -172,7 +178,13 @@ static void update_tcnt(RTPUState *s)
         if (div > 0) {
             s->ch[ch].tcnt += elapsed / div;
         } else {
-            s->ch[ch].tcnt += FIELD_EX32(ir[ch], TSR, TCFV);
+            /*
+             * Cascaded: channel 1 counts TCNT_2 overflows, channel 4 counts
+             * TCNT_5.  The loop runs downwards, so the feeding channel has
+             * been updated already -- ir[ch] is this channel's own flag,
+             * which was just cleared and is always 0.
+             */
+            s->ch[ch].tcnt += FIELD_EX32(ir[ch + 1], TSR, TCFV);
         }
         
         if (s->ch[ch].tcnt >= 0x10000) {
